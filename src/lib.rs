@@ -1,6 +1,18 @@
 use std::cmp::Ordering;
-use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
+
+#[derive(Debug, Eq, PartialEq)]
+pub enum Tree {
+    Leaf {
+        value: usize,
+        character: char,
+    },
+    Node {
+        value: usize,
+        left: Option<Box<Tree>>,
+        right: Option<Box<Tree>>,
+    },
+}
 
 pub fn frequencies(input: &str) -> HashMap<char, usize> {
     let mut f = HashMap::new();
@@ -10,57 +22,68 @@ pub fn frequencies(input: &str) -> HashMap<char, usize> {
     f
 }
 
-pub fn bin_heap_min(input: &str) -> BinaryHeap<CharInfo> {
-    let mut f = HashMap::new();
-    for character in input.chars() {
-        *f.entry(character).or_insert(0) += 1;
-    }
+pub fn bin_heap_min(input: &str) -> BinaryHeap<Tree> {
+    let f = frequencies(input);
 
     let mut h = BinaryHeap::new();
     for (character, count) in f {
-        h.push(CharInfo {
-            char: character,
-            count,
+        h.push(Tree::Leaf {
+            value: count,
+            character,
         })
     }
 
     h
 }
-#[derive(Debug)]
-pub struct CharInfo {
-    count: usize,
-    char: char,
+
+pub fn to_tree(input: &str) -> Tree {
+    let mut heap = bin_heap_min(input);
+
+    while heap.len() > 1 {
+        let first = heap.pop().unwrap();
+        let second = heap.pop().unwrap();
+        heap.push(Tree::Node {
+            value: get_value(&first) + get_value(&second),
+            left: Some(Box::new(first)),
+            right: Some(Box::new(second)),
+        })
+    }
+
+    heap.pop().unwrap()
 }
 
-impl PartialEq for CharInfo {
-    fn eq(&self, other: &Self) -> bool {
-        println!(
-            "PartialEq.eq called with self: {:?} and other: {:?}",
-            self, other
-        );
-        self.count == other.count
+fn get_value(tree: &Tree) -> usize {
+    match tree {
+        Tree::Node { value, .. } | Tree::Leaf { value, .. } => *value,
     }
 }
 
-impl Eq for CharInfo {}
-
-impl PartialOrd for CharInfo {
+impl PartialOrd for Tree {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        println!(
-            "PartialOrd.partial_cmp called with self: {:?} and other: {:?}",
-            self, other
-        );
-        Some(self.cmp(&other)) // Delegate to the implementation in `Ord`.
+        Some(self.cmp(&other))
     }
 }
 
-impl Ord for CharInfo {
+impl Ord for Tree {
     fn cmp(&self, other: &Self) -> Ordering {
-        println!(
-            "Ord.cmp called with self: {:?} and other: {:?}",
-            self, other
-        );
-        self.count.cmp(&other.count).reverse()
+        match self {
+            Tree::Leaf { value: selfval, .. } => match other {
+                Tree::Leaf {
+                    value: otherval, ..
+                }
+                | Tree::Node {
+                    value: otherval, ..
+                } => selfval.cmp(otherval).reverse(),
+            },
+            Tree::Node { value: selfval, .. } => match other {
+                Tree::Leaf {
+                    value: otherval, ..
+                }
+                | Tree::Node {
+                    value: otherval, ..
+                } => selfval.cmp(otherval).reverse(),
+            },
+        }
     }
 }
 
@@ -83,6 +106,17 @@ mod tests {
         let mut result = bin_heap_min("aabcccca");
         assert_eq!(result.len(), 3);
 
-        assert_eq!(result.pop().unwrap().char, 'b');
+        assert_eq!(
+            match result.pop() {
+                Some(Tree::Leaf { character: x, .. }) => x,
+                _ => panic!("Expected leaf"),
+            },
+            'b'
+        );
+    }
+
+    #[test]
+    fn test_to_tree() {
+        println!("{:?}", to_tree("aabcccca"));
     }
 }
