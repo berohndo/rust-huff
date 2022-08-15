@@ -14,15 +14,35 @@ pub enum Tree {
     },
 }
 
-pub fn frequencies(input: &str) -> HashMap<char, usize> {
+#[derive(Debug, Copy, Clone)]
+pub enum Direction {
+    Left,
+    Right,
+}
+
+// TODO proper joining???
+static ZERO: &str = "0";
+static ONE: &str = "1";
+
+impl ToString for Direction {
+    fn to_string(&self) -> String {
+        match self {
+            Direction::Left => ZERO.to_string(),
+            _ => ONE.to_string(),
+        }
+    }
+}
+
+fn frequencies(input: &str) -> HashMap<char, usize> {
     let mut f = HashMap::new();
     for character in input.chars() {
         *f.entry(character).or_insert(0) += 1;
     }
+
     f
 }
 
-pub fn bin_heap_min(input: &str) -> BinaryHeap<Tree> {
+fn bin_heap_min(input: &str) -> BinaryHeap<Tree> {
     let f = frequencies(input);
 
     let mut h = BinaryHeap::new();
@@ -36,7 +56,7 @@ pub fn bin_heap_min(input: &str) -> BinaryHeap<Tree> {
     h
 }
 
-pub fn to_tree(input: &str) -> Tree {
+fn to_tree(input: &str) -> Tree {
     let mut heap = bin_heap_min(input);
 
     while heap.len() > 1 {
@@ -52,6 +72,45 @@ pub fn to_tree(input: &str) -> Tree {
     heap.pop().unwrap()
 }
 
+pub fn encode(input: &str) -> HashMap<char, String> {
+    let tree = to_tree(input);
+    let mut encoding = HashMap::new();
+    traverse_inner(&tree, Box::new(vec![]), &mut encoding);
+
+    encoding
+}
+
+fn traverse_inner(tree: &Tree, path: Box<Vec<Direction>>, encoding: &mut HashMap<char, String>) {
+    match tree {
+        Tree::Leaf { character, .. } => {
+            encoding.insert(*character, to_path(&path));
+        }
+        Tree::Node { left, right, .. } => {
+            if let Some(left) = left {
+                let mut path_left = Box::new(*path.clone());
+                path_left.push(Direction::Left);
+                traverse_inner(left, path_left, encoding);
+            }
+
+            if let Some(right) = right {
+                let mut path_right = Box::new(*path);
+                path_right.push(Direction::Right);
+                traverse_inner(right, path_right, encoding);
+            }
+        }
+    }
+}
+// TODO proper joining???
+fn to_path(path: &Vec<Direction>) -> String {
+    let mut s = String::from("");
+
+    for d in path {
+        s.push_str(&d.to_string())
+    }
+
+    s
+}
+
 fn get_value(tree: &Tree) -> usize {
     match tree {
         Tree::Node { value, .. } | Tree::Leaf { value, .. } => *value,
@@ -60,7 +119,7 @@ fn get_value(tree: &Tree) -> usize {
 
 impl PartialOrd for Tree {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 
@@ -116,7 +175,10 @@ mod tests {
     }
 
     #[test]
-    fn test_to_tree() {
-        println!("{:?}", to_tree("aabcccca"));
+    fn test_travers() {
+        let table = encode("aaabbc");
+        assert_eq!(table.get(&'a').unwrap(), "0");
+        assert_eq!(table.get(&'c').unwrap(), "10");
+        assert_eq!(table.get(&'b').unwrap(), "11");
     }
 }
