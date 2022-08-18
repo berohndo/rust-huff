@@ -1,18 +1,10 @@
-use std::cmp::Ordering;
+use core::fmt;
 use std::collections::{BinaryHeap, HashMap};
+use std::fmt::Display;
 
-#[derive(Debug, Eq, PartialEq)]
-pub enum Tree {
-    Leaf {
-        value: usize,
-        character: char,
-    },
-    Node {
-        value: usize,
-        left: Option<Box<Tree>>,
-        right: Option<Box<Tree>>,
-    },
-}
+mod tree;
+
+use crate::tree::Tree;
 
 #[derive(Debug, Copy, Clone)]
 pub enum Direction {
@@ -20,16 +12,14 @@ pub enum Direction {
     Right,
 }
 
-// TODO proper joining???
-static ZERO: &str = "0";
-static ONE: &str = "1";
+impl Display for Direction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            Direction::Left => "0",
+            Direction::Right => "1",
+        };
 
-impl ToString for Direction {
-    fn to_string(&self) -> String {
-        match self {
-            Direction::Left => ZERO.to_string(),
-            _ => ONE.to_string(),
-        }
+        write!(f, "{}", s)
     }
 }
 
@@ -72,77 +62,45 @@ fn to_tree(input: &str) -> Tree {
     heap.pop().unwrap()
 }
 
-pub fn encode(input: &str) -> HashMap<char, String> {
+pub fn encode(input: &str) -> (HashMap<char, String>, Tree) {
     let tree = to_tree(input);
     let mut encoding = HashMap::new();
-    traverse_inner(&tree, Box::new(vec![]), &mut encoding);
+    traverse_inner(&tree, vec![], &mut encoding);
 
-    encoding
+    (encoding, tree)
 }
 
-fn traverse_inner(tree: &Tree, path: Box<Vec<Direction>>, encoding: &mut HashMap<char, String>) {
+fn traverse_inner(tree: &Tree, path: Vec<Direction>, encoding: &mut HashMap<char, String>) {
     match tree {
         Tree::Leaf { character, .. } => {
             encoding.insert(*character, to_path(&path));
         }
         Tree::Node { left, right, .. } => {
             if let Some(left) = left {
-                let mut path_left = Box::new(*path.clone());
+                let mut path_left = path.clone();
                 path_left.push(Direction::Left);
                 traverse_inner(left, path_left, encoding);
             }
 
             if let Some(right) = right {
-                let mut path_right = Box::new(*path);
+                let mut path_right = path;
                 path_right.push(Direction::Right);
                 traverse_inner(right, path_right, encoding);
             }
         }
     }
 }
-// TODO proper joining???
-fn to_path(path: &Vec<Direction>) -> String {
-    let mut s = String::from("");
 
-    for d in path {
-        s.push_str(&d.to_string())
-    }
-
-    s
+fn to_path(path: &[Direction]) -> String {
+    path.iter()
+        .map(Direction::to_string)
+        .collect::<Vec<String>>()
+        .join("")
 }
 
 fn get_value(tree: &Tree) -> usize {
     match tree {
         Tree::Node { value, .. } | Tree::Leaf { value, .. } => *value,
-    }
-}
-
-impl PartialOrd for Tree {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Tree {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match self {
-            Tree::Leaf { value: selfval, .. } => match other {
-                Tree::Leaf {
-                    value: otherval, ..
-                }
-                | Tree::Node {
-                    value: otherval, ..
-                } => selfval.cmp(otherval).reverse(),
-            },
-            Tree::Node { value: selfval, .. } => match other {
-                Tree::Leaf {
-                    value: otherval, ..
-                }
-                | Tree::Node {
-                    value: otherval, ..
-                } => selfval.cmp(otherval).reverse(),
-            },
-        }
     }
 }
 
