@@ -1,4 +1,4 @@
-use huff::encode;
+use huff::{decode, encode};
 use std::cmp;
 use std::collections::HashMap;
 use std::fs::{read_to_string, File};
@@ -7,7 +7,7 @@ use std::io::{BufReader, Read, Result, Write};
 
 fn main() -> Result<()> {
     let text = read_to_string("readme.md")?;
-    let (table, _tree) = encode(&text);
+    let (table, tree) = encode(&text);
 
     print_mapping_table(&table);
 
@@ -25,6 +25,10 @@ fn main() -> Result<()> {
     let compressed = read_compressed("readme.md.bc")?;
 
     let bit_str_new = to_bit_str(&compressed);
+
+    let original = decode(&tree, &bit_str_new);
+
+    println!("{}", original);
 
     assert_eq!(bit_str_old, bit_str_new);
 
@@ -48,12 +52,14 @@ fn compress(table: &HashMap<char, String>, text: &str) -> String {
 fn print_mapping_table(table: &HashMap<char, String>) {
     println!("--------------------------");
     for (character, encoded) in table {
+        let status = if encoded.len() > 8 { "💩️" } else { "" };
+
         if *character == '\n' {
-            println!("|{:>3}  |  {:>16}|", "\\n", encoded);
+            println!("|{:>3}  |  {:>16}| {} ", "\\n", encoded, status)
         } else if *character == '\t' {
-            println!("|{:>3}  |  {:>16}|", "\\t", encoded);
+            println!("|{:>3}  |  {:>16}| {}", "\\t", encoded, status)
         } else {
-            println!("|{:>3}  |  {:>16}|", character, encoded);
+            println!("|{:>3}  |  {:>16}| {}", character, encoded, status)
         }
     }
     println!("--------------------------");
@@ -70,7 +76,7 @@ fn write_compressed(file: &str, bits: &str) -> Result<()> {
         consumed = end;
     }
 
-    // how many real bits are in the last byte
+    // how many "real" bits are in the last byte
     let real_bits_in_last_byte = (bits.len() % 8) as u8;
     file.write_all(&real_bits_in_last_byte.to_be_bytes())?;
 

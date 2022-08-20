@@ -23,6 +23,49 @@ impl Display for Direction {
     }
 }
 
+pub fn encode(input: &str) -> (HashMap<char, String>, Tree) {
+    let tree = to_tree(input);
+    let mut encoding = HashMap::new();
+    traverse_inner(&tree, vec![], &mut encoding);
+
+    (encoding, tree)
+}
+
+pub fn decode(tree: &Tree, input: &str) -> String {
+    let mut pointer = tree;
+
+    let mut result = String::new();
+
+    for bit in input.chars() {
+        match bit {
+            '0' => {
+                if let Tree::Node {
+                    left: Some(left), ..
+                } = pointer
+                {
+                    pointer = left.as_ref();
+                }
+            }
+            '1' => {
+                if let Tree::Node {
+                    right: Some(right), ..
+                } = pointer
+                {
+                    pointer = right.as_ref();
+                }
+            }
+            _ => panic!("unexpected char"),
+        }
+
+        if let Tree::Leaf { character, .. } = pointer {
+            result.push(*character);
+            pointer = tree;
+        }
+    }
+
+    result
+}
+
 fn frequencies(input: &str) -> HashMap<char, usize> {
     let mut f = HashMap::new();
     for character in input.chars() {
@@ -60,14 +103,6 @@ fn to_tree(input: &str) -> Tree {
     }
 
     heap.pop().unwrap()
-}
-
-pub fn encode(input: &str) -> (HashMap<char, String>, Tree) {
-    let tree = to_tree(input);
-    let mut encoding = HashMap::new();
-    traverse_inner(&tree, vec![], &mut encoding);
-
-    (encoding, tree)
 }
 
 fn traverse_inner(tree: &Tree, path: Vec<Direction>, encoding: &mut HashMap<char, String>) {
@@ -134,7 +169,7 @@ mod tests {
 
     #[test]
     fn test_travers() {
-        let table = encode("aaabbc");
+        let (table, _) = encode("aaabbc");
         assert_eq!(table.get(&'a').unwrap(), "0");
         assert_eq!(table.get(&'c').unwrap(), "10");
         assert_eq!(table.get(&'b').unwrap(), "11");
