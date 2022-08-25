@@ -1,116 +1,255 @@
-use huff::{decode, encode};
-use std::cmp;
 use std::collections::HashMap;
-use std::fs::{read_to_string, File};
+use std::fs::{metadata, File};
+use std::io::prelude::*;
+use std::io::{Read, Result, SeekFrom, Write};
+use std::path::PathBuf;
 
-use std::io::{BufReader, Read, Result, Write};
+use clap::{Parser, Subcommand};
+
+use bitbit::{BitReader, MSB};
+use huff::bitwriter::BitWriter;
+use huff::encode;
+use huff::tree::Tree;
+
+#[derive(Subcommand)]
+enum Command {
+    Compress {
+        #[clap(short, long, value_parser, value_name = "INPUT-FILE")]
+        input_file_name: PathBuf,
+        #[clap(short, long, value_parser, value_name = "OUTPUT-FILE")]
+        output_file_name: PathBuf,
+        #[clap(short, long, value_parser, value_name = "verbose")]
+        verbose: bool,
+    },
+    Extract {
+        #[clap(short, long, value_parser, value_name = "INPUT-FILE")]
+        input_file_name: PathBuf,
+
+        #[clap(short, long, value_parser, value_name = "OUTPUT-FILE")]
+        output_file_name: PathBuf,
+    },
+
+    Verfify {
+        #[clap(short, long, value_parser, value_name = "INPUT-FILE")]
+        input_file_name: PathBuf,
+
+        #[clap(short, long, value_parser, value_name = "OUTPUT-FILE")]
+        output_file_name: PathBuf,
+    },
+}
+
+#[derive(Parser)]
+#[clap(author, version, about, long_about = None)]
+struct Cli {
+    #[clap(subcommand)]
+    command: Command,
+}
 
 fn main() -> Result<()> {
-    let text = read_to_string("readme.md")?;
-    let (table, tree) = encode(&text);
+    let cli = Cli::parse();
 
-    print_mapping_table(&table);
-
-    let bit_str_old = compress(&table, &text);
-
-    println!("Length original: {}", text.len());
-    println!(
-        "Length compressed: {}",
-        (bit_str_old.len() as f64 / 8.0).ceil() as usize + 1
-    );
-    println!("Length encoding table: ???");
-
-    write_compressed("readme.md.bc", &bit_str_old)?;
-
-    let compressed = read_compressed("readme.md.bc")?;
-
-    let bit_str_new = to_bit_str(&compressed);
-
-    let original = decode(&tree, &bit_str_new);
-
-    println!("{}", original);
-
-    assert_eq!(bit_str_old, bit_str_new);
-
-    Ok(())
-}
-
-fn compress(table: &HashMap<char, String>, text: &str) -> String {
-    let mut alloc = 0;
-    for character in text.chars() {
-        alloc += table.get(&character).expect("encoding info").len();
-    }
-
-    let mut bits = String::with_capacity(alloc);
-    for character in text.chars() {
-        bits.push_str(table.get(&character).unwrap());
-    }
-
-    bits
-}
-
-fn print_mapping_table(table: &HashMap<char, String>) {
-    println!("--------------------------");
-    for (character, encoded) in table {
-        let status = if encoded.len() > 8 { "💩️" } else { "" };
-
-        if *character == '\n' {
-            println!("|{:>3}  |  {:>16}| {} ", "\\n", encoded, status)
-        } else if *character == '\t' {
-            println!("|{:>3}  |  {:>16}| {}", "\\t", encoded, status)
-        } else {
-            println!("|{:>3}  |  {:>16}| {}", character, encoded, status)
+    match cli.command {
+        Command::Compress {
+            input_file_name,
+            output_file_name,
+            verbose,
+        } => {
+            subcommand_compress(input_file_name, output_file_name, verbose)?;
+        }
+        Command::Extract {
+            input_file_name,
+            output_file_name,
+        } => {
+            subcommand_extract(input_file_name, output_file_name)?;
+        }
+        Command::Verfify {
+            input_file_name,
+            output_file_name,
+        } => {
+            subcommand_verify(input_file_name, output_file_name)?;
         }
     }
-    println!("--------------------------");
-}
-
-fn write_compressed(file: &str, bits: &str) -> Result<()> {
-    let mut file = File::create(file)?;
-
-    let mut consumed = 0;
-    while consumed < bits.len() {
-        let end = cmp::min(consumed + 8, bits.len());
-        let byte = u8::from_str_radix(&bits[consumed..end], 2).unwrap();
-        file.write_all(&byte.to_be_bytes())?;
-        consumed = end;
-    }
-
-    // how many "real" bits are in the last byte
-    let real_bits_in_last_byte = (bits.len() % 8) as u8;
-    file.write_all(&real_bits_in_last_byte.to_be_bytes())?;
-
-    println!("real bits in last byte: {0}", real_bits_in_last_byte);
 
     Ok(())
 }
 
-fn to_bit_str(compressed: &[u8]) -> String {
-    let mut bits = String::with_capacity(compressed.len() * 8);
-    for byte in &compressed[..compressed.len() - 2] {
-        let byte = format!("{:08b}", byte);
-        bits.push_str(&byte);
-    }
-
-    let last_byte_info = *compressed.last().expect("some content") as usize;
-    let last_byte = compressed
-        .get(compressed.len() - 2)
-        .expect("enough content");
-
-    let last_byte = format!("{:08b}", last_byte);
-    bits.push_str(&last_byte[(8 - last_byte_info)..]);
-
-    bits
+fn subcommand_verify(input_file: PathBuf, output_file: PathBuf) -> Result<()> {
+    Ok(())
 }
 
-fn read_compressed(file: &str) -> Result<Vec<u8>> {
-    let file = File::open(file)?;
+fn subcommand_compress(input_file: PathBuf, output_file: PathBuf, verbose: bool) -> Result<()> {
+    let mut f = File::open(&input_file).expect("input file not found");
+    let metadata = metadata(&input_file).expect("unable to read input file metadata");
+    let mut buffer = vec![0; metadata.len() as usize];
+    f.read(&mut buffer)?;
 
-    let mut reader = BufReader::new(file);
-    let mut buffer = Vec::new();
+    let (table, tree) = encode(&buffer);
 
-    // Read file into vector.
-    reader.read_to_end(&mut buffer)?;
+    if verbose {
+        print_mapping_table(&table);
+    }
 
-    Ok(buffer)
+    let w = File::create(&output_file)?;
+    let mut bw = BitWriter::new(w);
+
+    write_tree(&mut bw, &tree)?;
+    let padding_tree = bw.align()?;
+
+    compress(&mut bw, &table, &buffer)?;
+    let padding_data = bw.align()?;
+
+    let last_byte = (padding_tree << 4) | padding_data;
+    bw.write_byte(last_byte)?;
+
+    Ok(())
+}
+
+fn subcommand_extract(input_file: PathBuf, output_file: PathBuf) -> Result<()> {
+    let mut r = File::open(&input_file)?;
+    r.seek(SeekFrom::End(-1))?;
+    let mut buf = vec![];
+    r.read_to_end(&mut buf)?;
+
+    let padding_tree = buf[0] >> 4 & 0xF;
+    let padding_data = buf[0] & 0xF;
+
+    let r = File::open(&input_file)?;
+    let mut br: BitReader<_, MSB> = BitReader::new(r);
+    let tree = read_tree(&mut br).unwrap();
+
+    br.read_bits(padding_tree as usize)?;
+
+    let current_pos = br.get_ref().seek(SeekFrom::Current(1))?;
+    let end_pos = br.get_ref().seek(SeekFrom::End(0))?;
+
+    let bits_to_read = (end_pos - current_pos) * 8 - padding_data as u64;
+
+    br.get_ref().seek(SeekFrom::Start(current_pos - 1))?;
+
+    let decompressed = extract(&mut br, &tree, bits_to_read)?;
+
+    let mut w = File::create(output_file)?;
+
+    w.write_all(&decompressed)?;
+
+    Ok(())
+}
+
+fn read_leaf<T: Read>(br: &mut BitReader<T, MSB>) -> Result<Tree> {
+    Ok(Tree::Leaf {
+        value: 0,
+        byte: br.read_byte()?,
+    })
+}
+
+fn read_tree<T: Read>(br: &mut BitReader<T, MSB>) -> Option<Tree> {
+    let bit = br.read_bit().unwrap();
+    if bit {
+        let l = read_tree(br)?;
+        let r = read_tree(br)?;
+
+        Some(Tree::Branch {
+            value: 0,
+            left: Some(Box::new(l)),
+            right: Some(Box::new(r)),
+        })
+    } else {
+        Some(read_leaf(br).unwrap())
+    }
+}
+
+fn write_tree<T: Write>(bw: &mut BitWriter<T>, tree: &Tree) -> Result<()> {
+    match tree {
+        Tree::Leaf { byte, .. } => {
+            bw.write_bit(false)?;
+            bw.write_byte(*byte)?;
+        }
+        Tree::Branch { left, right, .. } => {
+            bw.write_bit(true)?;
+            if left.is_some() {
+                write_tree(bw, left.as_ref().unwrap())?;
+            }
+            if right.is_some() {
+                write_tree(bw, right.as_ref().unwrap())?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn extract<T: Read>(br: &mut BitReader<T, MSB>, tree: &Tree, bits_to_read: u64) -> Result<Vec<u8>> {
+    let mut pointer = tree;
+    let mut vec = vec![];
+
+    for _ in 0..bits_to_read {
+        let bit = br.read_bit()?;
+        match bit {
+            false => {
+                if let Tree::Branch {
+                    left: Some(left), ..
+                } = pointer
+                {
+                    pointer = left.as_ref();
+                }
+            }
+            true => {
+                if let Tree::Branch {
+                    right: Some(right), ..
+                } = pointer
+                {
+                    pointer = right.as_ref();
+                }
+            }
+        }
+
+        if let Tree::Leaf { byte, .. } = pointer {
+            vec.push(*byte);
+            pointer = tree;
+        }
+    }
+
+    Ok(vec)
+}
+
+fn compress<T: Write>(
+    bw: &mut BitWriter<T>,
+    table: &HashMap<u8, Vec<bool>>,
+    data: &[u8],
+) -> Result<()> {
+    for byte in data {
+        let bytes = table.get(byte).unwrap();
+        for bit in bytes {
+            bw.write_bit(*bit)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn print_mapping_table(table: &HashMap<u8, Vec<bool>>) {
+    println!("------------------------------------");
+    for (byte, encoded) in table {
+        let status = if encoded.len() > 8 { "💩️" } else { "" };
+        println!(
+            "| {:>3} | {:08b} | {:>16}| {}",
+            byte,
+            byte,
+            bool_vec_to_string(encoded),
+            status
+        )
+    }
+    println!("------------------------------------");
+}
+
+fn bool_vec_to_string(vec: &[bool]) -> String {
+    fn m(val: &bool) -> char {
+        if *val {
+            '1'
+        } else {
+            '0'
+        }
+    }
+
+    String::from_iter(vec.iter().map(m))
 }

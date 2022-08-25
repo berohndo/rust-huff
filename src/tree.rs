@@ -4,9 +4,9 @@ use std::cmp::Ordering;
 pub enum Tree {
     Leaf {
         value: usize,
-        character: char,
+        byte: u8,
     },
-    Node {
+    Branch {
         value: usize,
         left: Option<Box<Tree>>,
         right: Option<Box<Tree>>,
@@ -26,15 +26,15 @@ impl Ord for Tree {
                 Tree::Leaf {
                     value: otherval, ..
                 }
-                | Tree::Node {
+                | Tree::Branch {
                     value: otherval, ..
                 } => selfval.cmp(otherval).reverse(),
             },
-            Tree::Node { value: selfval, .. } => match other {
+            Tree::Branch { value: selfval, .. } => match other {
                 Tree::Leaf {
                     value: otherval, ..
                 }
-                | Tree::Node {
+                | Tree::Branch {
                     value: otherval, ..
                 } => selfval.cmp(otherval).reverse(),
             },
